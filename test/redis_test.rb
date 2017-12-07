@@ -68,6 +68,22 @@ class TestRedis < Minitest::Test
     end
   end
 
+  def test_command_errors_because_of_oom_do_open_the_circuit
+    client = connect_to_redis!
+
+    with_maxmemory(1) do
+      ERROR_THRESHOLD.times do
+        assert_raises ::Redis::OutOfMemoryError do
+          client.set('foo', 'bar')
+        end
+      end
+
+      assert_raises ::Redis::CircuitOpenError do
+        client.set('foo', 'bla')
+      end
+    end
+  end
+
   def test_connect_instrumentation
     notified = false
     subscriber = Semian.subscribe do |event, resource, scope, adapter|
@@ -233,5 +249,17 @@ class TestRedis < Minitest::Test
     redis = new_redis(semian: semian_options)
     redis.client.connect
     redis
+  end
+
+  def with_maxmemory(bytes)
+    client = connect_to_redis!(name: 'maxmemory')
+
+    _, old = client.config('get', 'maxmemory')
+    begin
+      client.config('set', 'maxmemory', bytes)
+      yield
+    ensure
+      client.config('set', 'maxmemory', old)
+    end
   end
 end
